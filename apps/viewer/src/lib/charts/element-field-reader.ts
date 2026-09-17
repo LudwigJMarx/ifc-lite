@@ -3,7 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 /**
- * Reads one IFC attribute or property per element for the charts (#4833),
+ * Reads one IFC field per element for the charts (#4833) — an attribute, a
+ * property, or a relation-borne family (see `element-field-families`) —
  * over the model's parse plus its mutation overlay. Occurrence values win;
  * a property the occurrence lacks falls back to its defining type
  * (IfcRelDefinesByType); an explicit null or a deleted property stays missing
@@ -19,6 +20,7 @@ import type { MutablePropertyView } from '@ifc-lite/mutations';
 import { findPropertyInSets } from '@ifc-lite/query';
 import { createListDataProvider } from '@/lib/lists/adapter';
 import { createElementAttributeSchema } from './element-field-schema';
+import { createElementFamilyReader } from './element-field-families';
 import {
   catalogFromObservations, emptyObservation, emptyObservations, observeAttribute, observeProperty, propertyObservationKey,
   type ElementFieldCatalog, type ElementFieldObservations,
@@ -59,6 +61,7 @@ const UNSUPPORTED: ResolvedElementFieldValue = { value: null, status: 'unsupport
 export function createElementFieldReader(store: IfcDataStore, mutationView?: MutablePropertyView): ElementFieldReader {
   const provider = createListDataProvider(store);
   const schema = createElementAttributeSchema(store);
+  const families = createElementFamilyReader(provider, (id) => definingTypeId(id), mutationView);
   const attributes = new Map<number, Map<string, unknown>>();
   const occurrenceSets = new Map<number, PropertySet[]>();
   const typeSets = new Map<number, PropertySet[]>();
@@ -140,6 +143,7 @@ export function createElementFieldReader(store: IfcDataStore, mutationView?: Mut
       const dataType = binding.dataType ?? schema.attributeType(typeName, binding.attributeName);
       return { ...normalizeElementFieldValue(raw, binding.valueKind), ...(dataType ? { dataType } : {}) };
     }
+    if (binding.kind !== 'property') return families.read(id, binding);
     const property = propertyFor(id, binding.psetName, binding.propertyName);
     const provenance = {
       ...(property?.unit ? { unit: property.unit } : {}),
@@ -187,6 +191,7 @@ export function createElementFieldReader(store: IfcDataStore, mutationView?: Mut
       }
       ingest(setsFor(id));
       ingest(typeSetsFor(id));
+      families.observe(id, observations);
     }
     return observations;
   };
